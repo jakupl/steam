@@ -1,0 +1,54 @@
+name: Fetch STEAM data and publish to GitHub Pages
+on:
+  schedule:
+    # uruchamiaj co godzinę (UTC). Workflow sam sprawdzi godzinę w strefie Europe/Warsaw
+    - cron: "0 * * * *"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Run only at Poland times (00:00,04:00,08:00,12:00,16:00,20 Europe/Warsaw)
+        # lekki krok — przerywa workflow bez błędu jeśli nie jest właściwa godzina
+        run: |
+          POLAND_HOUR=$(TZ=Europe/Warsaw date +%H)
+          echo "Poland hour (Europe/Warsaw): $POLAND_HOUR"
+          case "$POLAND_HOUR" in
+            00|04|08|12|16|20)
+              echo "Scheduled hour — continuing."
+              ;;
+            *)
+              echo "Not a scheduled hour for this workflow. Exiting successfully."
+              exit 0
+              ;;
+          esac
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install deps (if any)
+        run: |
+          if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install || true; fi
+      - name: Run fetch script
+        run: |
+          node fetchData.mjs
+      - name: Prepare public directory for Pages
+        run: |
+          mkdir -p public
+          if [ -f floatPriceList.json ]; then mv floatPriceList.json public/; else echo "ERROR: floatPriceList.json not found" && exit 1; fi
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
